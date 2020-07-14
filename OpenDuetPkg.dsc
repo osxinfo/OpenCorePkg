@@ -168,9 +168,9 @@
   FatPkg/EnhancedFatDxe/Fat.inf
 
   # IDE/AHCI Support
-  MdeModulePkg/Bus/Pci/SataControllerDxe/SataControllerDxe.inf
+  OpenCorePkg/Drivers/SataControllerDxe/SataControllerDxe.inf
   MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru.inf
-  MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe.inf
+  OpenCorePkg/Drivers/AtaBus/AtaBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
 
