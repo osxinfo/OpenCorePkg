@@ -1,7 +1,7 @@
 /** @file
-  UEFI Component Name(2) protocol implementation for ConPlatform driver.
+  UEFI Component Name(2) protocol implementation for AtaAtapiPassThru driver.
   
-  Copyright (c) 2009 - 2011, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2010 - 2011, Intel Corporation. All rights reserved.<BR>
   This program and the accompanying materials                          
   are licensed and made available under the terms and conditions of the BSD License         
   which accompanies this distribution.  The full text of the license may be found at        
@@ -12,40 +12,44 @@
 
 **/
 
-#include "AtaBus.h"
+#include "AtaAtapiPassThru.h"
 
 //
 // Driver name table 
 //
-GLOBAL_REMOVE_IF_UNREFERENCED EFI_UNICODE_STRING_TABLE mAtaBusDriverNameTable[] = {
-  { "eng;en", L"ATA Bus Driver" },
+GLOBAL_REMOVE_IF_UNREFERENCED EFI_UNICODE_STRING_TABLE mAtaAtapiPassThruDriverNameTable[] = {
+  { "eng;en", L"AtaAtapiPassThru Driver" },
   { NULL , NULL }
 };
 
 //
 // Controller name table
 //
-GLOBAL_REMOVE_IF_UNREFERENCED EFI_UNICODE_STRING_TABLE mAtaBusControllerNameTable[] = {
-  { "eng;en", L"ATA Controller" },
+GLOBAL_REMOVE_IF_UNREFERENCED EFI_UNICODE_STRING_TABLE mAtaAtapiPassThruIdeControllerNameTable[] = {
+  { "eng;en", L"IDE Controller" },
   { NULL , NULL }
 };
 
+GLOBAL_REMOVE_IF_UNREFERENCED EFI_UNICODE_STRING_TABLE mAtaAtapiPassThruAhciControllerNameTable[] = {
+  { "eng;en", L"AHCI Controller" },
+  { NULL , NULL }
+};
 
 //
 // EFI Component Name Protocol
 //
-GLOBAL_REMOVE_IF_UNREFERENCED EFI_COMPONENT_NAME_PROTOCOL  gAtaBusComponentName = {
-  AtaBusComponentNameGetDriverName,
-  AtaBusComponentNameGetControllerName,
+GLOBAL_REMOVE_IF_UNREFERENCED EFI_COMPONENT_NAME_PROTOCOL  gAtaAtapiPassThruComponentName = {
+  AtaAtapiPassThruComponentNameGetDriverName,
+  AtaAtapiPassThruComponentNameGetControllerName,
   "eng"
 };
 
 //
 // EFI Component Name 2 Protocol
 //
-GLOBAL_REMOVE_IF_UNREFERENCED EFI_COMPONENT_NAME2_PROTOCOL gAtaBusComponentName2 = {
-  (EFI_COMPONENT_NAME2_GET_DRIVER_NAME) AtaBusComponentNameGetDriverName,
-  (EFI_COMPONENT_NAME2_GET_CONTROLLER_NAME) AtaBusComponentNameGetControllerName,
+GLOBAL_REMOVE_IF_UNREFERENCED EFI_COMPONENT_NAME2_PROTOCOL gAtaAtapiPassThruComponentName2 = {
+  (EFI_COMPONENT_NAME2_GET_DRIVER_NAME) AtaAtapiPassThruComponentNameGetDriverName,
+  (EFI_COMPONENT_NAME2_GET_CONTROLLER_NAME) AtaAtapiPassThruComponentNameGetControllerName,
   "en"
 };
 
@@ -90,7 +94,7 @@ GLOBAL_REMOVE_IF_UNREFERENCED EFI_COMPONENT_NAME2_PROTOCOL gAtaBusComponentName2
 **/
 EFI_STATUS
 EFIAPI
-AtaBusComponentNameGetDriverName (
+AtaAtapiPassThruComponentNameGetDriverName (
   IN  EFI_COMPONENT_NAME_PROTOCOL  *This,
   IN  CHAR8                        *Language,
   OUT CHAR16                       **DriverName
@@ -99,9 +103,9 @@ AtaBusComponentNameGetDriverName (
   return LookupUnicodeString2 (
            Language,
            This->SupportedLanguages,
-           mAtaBusDriverNameTable,
+           mAtaAtapiPassThruDriverNameTable,
            DriverName,
-           (BOOLEAN)(This == &gAtaBusComponentName)
+           (BOOLEAN)(This == &gAtaAtapiPassThruComponentName)
            );
 }
 
@@ -176,7 +180,7 @@ AtaBusComponentNameGetDriverName (
 **/
 EFI_STATUS
 EFIAPI
-AtaBusComponentNameGetControllerName (
+AtaAtapiPassThruComponentNameGetControllerName (
   IN  EFI_COMPONENT_NAME_PROTOCOL                     *This,
   IN  EFI_HANDLE                                      ControllerHandle,
   IN  EFI_HANDLE                                      ChildHandle        OPTIONAL,
@@ -184,72 +188,64 @@ AtaBusComponentNameGetControllerName (
   OUT CHAR16                                          **ControllerName
   )
 {
-  EFI_STATUS                Status;
-  EFI_BLOCK_IO_PROTOCOL     *BlockIo;
-  EFI_BLOCK_IO2_PROTOCOL    *BlockIo2;
-  ATA_DEVICE                *AtaDevice = NULL;
-  EFI_UNICODE_STRING_TABLE  *ControllerNameTable;
+  EFI_STATUS                    Status;
+  EFI_UNICODE_STRING_TABLE      *ControllerNameTable;
+  VOID                          *Interface;
+  ATA_ATAPI_PASS_THRU_INSTANCE  *Instance;
+
+  if (Language == NULL || ControllerName == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   //
-  // Make sure this driver is currently managing ControllHandle
+  // This is a device driver, so ChildHandle must be NULL.
+  //
+  if (ChildHandle != NULL) {
+    return EFI_UNSUPPORTED;
+  }
+
+  //
+  // Make sure this driver is currently managing Controller Handle
   //
   Status = EfiTestManagedDevice (
              ControllerHandle,
-             gAtaBusDriverBinding.DriverBindingHandle,
-             &gEfiAtaPassThruProtocolGuid
+             gAtaAtapiPassThruDriverBinding.DriverBindingHandle,
+             &gEfiIdeControllerInitProtocolGuid
              );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  ControllerNameTable = mAtaBusControllerNameTable;
-  if (ChildHandle != NULL) {
-    Status = EfiTestChildHandle (
-               ControllerHandle,
-               ChildHandle,
-               &gEfiAtaPassThruProtocolGuid
-               );
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-    //
-    // Get the child context
-    //
-    Status = gBS->OpenProtocol (
-                                ChildHandle,
-                                &gEfiBlockIo2ProtocolGuid,
-                                (VOID **) &BlockIo2,
-                                gAtaBusDriverBinding.DriverBindingHandle,
-                                ChildHandle,
-                                EFI_OPEN_PROTOCOL_GET_PROTOCOL
-                                );
-    if (!EFI_ERROR(Status))
-    {
-      AtaDevice = ATA_DEVICE_FROM_BLOCK_IO2 (BlockIo2);
-    }
-    else
-    {
-      BlockIo2 = NULL;
-      Status = gBS->OpenProtocol (
-                    ChildHandle,
-                    &gEfiBlockIoProtocolGuid,
-                    (VOID **) &BlockIo,
-                    gAtaBusDriverBinding.DriverBindingHandle,
-                    ChildHandle,
-                    EFI_OPEN_PROTOCOL_GET_PROTOCOL
-                    );
-      if (EFI_ERROR (Status)) {
-        return EFI_UNSUPPORTED;
-      }
-      AtaDevice = ATA_DEVICE_FROM_BLOCK_IO (BlockIo);
-    }
-    ControllerNameTable =AtaDevice->ControllerNameTable;
+  //
+  // AtaPassThru and ExtScsiPassThru should also be installed at the controller handle.
+  //
+  Status = gBS->OpenProtocol (
+                  ControllerHandle,
+                  &gEfiAtaPassThruProtocolGuid,
+                  &Interface,
+                  gAtaAtapiPassThruDriverBinding.DriverBindingHandle,
+                  ControllerHandle,
+                  EFI_OPEN_PROTOCOL_GET_PROTOCOL
+                  );
+  if (EFI_ERROR (Status)) {
+    return EFI_UNSUPPORTED;
   }
+
+  Instance = ATA_PASS_THRU_PRIVATE_DATA_FROM_THIS (Interface);
+
+  if (Instance->Mode == EfiAtaIdeMode) {
+    ControllerNameTable = mAtaAtapiPassThruIdeControllerNameTable;
+  } else if (Instance->Mode == EfiAtaAhciMode) {
+    ControllerNameTable = mAtaAtapiPassThruAhciControllerNameTable;
+  } else {
+    return EFI_UNSUPPORTED;
+  }
+
   return LookupUnicodeString2 (
            Language,
            This->SupportedLanguages,
            ControllerNameTable,
            ControllerName,
-           (BOOLEAN)(This == &gAtaBusComponentName)
+           (BOOLEAN)(This == &gAtaAtapiPassThruComponentName)
            );
 }
