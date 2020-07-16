@@ -361,7 +361,7 @@ SataControllerSupported (
     return EFI_UNSUPPORTED;
   }
 
-  if (IS_PCI_IDE (&PciData) || IS_PCI_SATADPA (&PciData) || IS_PCI_RAID(&PciData)) {
+  if (IS_PCI_IDE (&PciData) || IS_PCI_SATADPA (&PciData)) {
     return EFI_SUCCESS;
   }
 
@@ -628,6 +628,37 @@ SataControllerStop (
                 );
 }
 
+/**
+  Calculate the flat array subscript of a (Channel, Device) pair.
+
+  @param[in] SataPrivateData  The private data structure corresponding to the
+                              SATA controller that attaches the device for
+                              which the flat array subscript is being
+                              calculated.
+
+  @param[in] Channel          The channel (ie. port) number on the SATA
+                              controller that the device is attached to.
+
+  @param[in] Device           The device number on the channel.
+
+  @return  The flat array subscript suitable for indexing DisqualifiedModes,
+           IdentifyData, and IdentifyValid.
+**/
+STATIC
+UINTN
+FlatDeviceIndex (
+  IN CONST EFI_SATA_CONTROLLER_PRIVATE_DATA  *SataPrivateData,
+  IN UINTN                                   Channel,
+  IN UINTN                                   Device
+  )
+{
+  ASSERT (SataPrivateData != NULL);
+  ASSERT (Channel < SataPrivateData->IdeInit.ChannelCount);
+  ASSERT (Device < SataPrivateData->DeviceCount);
+
+  return Channel * SataPrivateData->DeviceCount + Device;
+}
+
 //
 // Interface functions of IDE_CONTROLLER_INIT protocol
 //
@@ -677,18 +708,11 @@ IdeInitGetChannelInfo (
   )
 {
   EFI_SATA_CONTROLLER_PRIVATE_DATA  *SataPrivateData;
-  if (!Enabled || !MaxDevices) {
-    return EFI_INVALID_PARAMETER;
-  }
   SataPrivateData = SATA_CONTROLLER_PRIVATE_DATA_FROM_THIS (This);
-//  ASSERT (SataPrivateData != NULL);
-  if (!SataPrivateData) {
-    *Enabled = FALSE;
-    return EFI_NOT_FOUND;
-  }
+  ASSERT (SataPrivateData != NULL);
 
   if (Channel < This->ChannelCount) {
-    *Enabled = (SataPrivateData->IPorts & (1<<Channel)) != 0;
+    *Enabled = TRUE;
     *MaxDevices = SataPrivateData->DeviceCount;
     return EFI_SUCCESS;
   }
@@ -875,33 +899,31 @@ IdeInitSubmitData (
   IN EFI_IDENTIFY_DATA                  *IdentifyData
   )
 {
-  UINTN Index;
   EFI_SATA_CONTROLLER_PRIVATE_DATA  *SataPrivateData;
+  UINTN                             DeviceIndex;
+
   SataPrivateData = SATA_CONTROLLER_PRIVATE_DATA_FROM_THIS (This);
-//  ASSERT (SataPrivateData != NULL);
-  if (!SataPrivateData) {
-    return EFI_NOT_FOUND;
-  }
+  ASSERT (SataPrivateData != NULL);
 
   if ((Channel >= This->ChannelCount) || (Device >= SataPrivateData->DeviceCount)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  Index = (UINTN) Channel * (UINTN) SataPrivateData->DeviceCount + (UINTN) Device;
+  DeviceIndex = FlatDeviceIndex (SataPrivateData, Channel, Device);
 
   //
   // Make a local copy of device's IdentifyData and mark the valid flag
   //
   if (IdentifyData != NULL) {
     CopyMem (
-      &(SataPrivateData->IdentifyData[Index]),
+      &(SataPrivateData->IdentifyData[DeviceIndex]),
       IdentifyData,
       sizeof (EFI_IDENTIFY_DATA)
       );
 
-    SataPrivateData->IdentifyValid[Index] = TRUE;
+    SataPrivateData->IdentifyValid[DeviceIndex] = TRUE;
   } else {
-    SataPrivateData->IdentifyValid[Index] = FALSE;
+    SataPrivateData->IdentifyValid[DeviceIndex] = FALSE;
   }
 
   return EFI_SUCCESS;
@@ -957,22 +979,23 @@ IdeInitDisqualifyMode (
   )
 {
   EFI_SATA_CONTROLLER_PRIVATE_DATA  *SataPrivateData;
+  UINTN                             DeviceIndex;
+
   SataPrivateData = SATA_CONTROLLER_PRIVATE_DATA_FROM_THIS (This);
-//  ASSERT (SataPrivateData != NULL);
-  if (!SataPrivateData) {
-    return EFI_NOT_FOUND;
-  }
+  ASSERT (SataPrivateData != NULL);
 
   if ((Channel >= This->ChannelCount) || (BadModes == NULL) || (Device >= SataPrivateData->DeviceCount)) {
     return EFI_INVALID_PARAMETER;
   }
+
+  DeviceIndex = FlatDeviceIndex (SataPrivateData, Channel, Device);
 
   //
   // Record the disqualified modes per channel per device. From ATA/ATAPI spec,
   // if a mode is not supported, the modes higher than it is also not supported.
   //
   CopyMem (
-    &(SataPrivateData->DisqualifiedModes[(UINTN) Channel * (UINTN) SataPrivateData->DeviceCount + (UINTN) Device]),
+    &(SataPrivateData->DisqualifiedModes[DeviceIndex]),
     BadModes,
     sizeof (EFI_ATA_COLLECTIVE_MODE)
     );
@@ -1049,13 +1072,10 @@ IdeInitCalculateMode (
   EFI_ATA_COLLECTIVE_MODE           *DisqualifiedModes;
   UINT16                            SelectedMode;
   EFI_STATUS                        Status;
-  UINTN                             Index;
+  UINTN                             DeviceIndex;
 
   SataPrivateData = SATA_CONTROLLER_PRIVATE_DATA_FROM_THIS (This);
-//  ASSERT (SataPrivateData != NULL);
-  if (!SataPrivateData) {
-    return EFI_NOT_FOUND;
-  }
+  ASSERT (SataPrivateData != NULL);
 
   if ((Channel >= This->ChannelCount) || (SupportedModes == NULL) || (Device >= SataPrivateData->DeviceCount)) {
     return EFI_INVALID_PARAMETER;
@@ -1063,13 +1083,15 @@ IdeInitCalculateMode (
 
   *SupportedModes = AllocateZeroPool (sizeof (EFI_ATA_COLLECTIVE_MODE));
   if (*SupportedModes == NULL) {
+    ASSERT (*SupportedModes != NULL);
     return EFI_OUT_OF_RESOURCES;
   }
 
-  Index = (UINTN) Channel * (UINTN) SataPrivateData->DeviceCount + (UINTN) Device;
-  IdentifyData = &(SataPrivateData->IdentifyData[Index]);
-  IdentifyValid = SataPrivateData->IdentifyValid[Index];
-  DisqualifiedModes = &(SataPrivateData->DisqualifiedModes[Index]);
+  DeviceIndex = FlatDeviceIndex (SataPrivateData, Channel, Device);
+
+  IdentifyData = &(SataPrivateData->IdentifyData[DeviceIndex]);
+  IdentifyValid = SataPrivateData->IdentifyValid[DeviceIndex];
+  DisqualifiedModes = &(SataPrivateData->DisqualifiedModes[DeviceIndex]);
 
   //
   // Make sure we've got the valid identify data of the device from SubmitData()
@@ -1105,9 +1127,6 @@ IdeInitCalculateMode (
   } else {
     (*SupportedModes)->UdmaMode.Valid = FALSE;
   }
-
-  (*SupportedModes)->MultiWordDmaMode.Valid = FALSE;
-	
   DEBUG ((DEBUG_INFO, "IdeInitCalculateMode: UdmaMode = %x\n", (*SupportedModes)->UdmaMode.Mode));
 
   //
