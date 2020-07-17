@@ -712,7 +712,7 @@ IdeInitGetChannelInfo (
   ASSERT (SataPrivateData != NULL);
 
   if (Channel < This->ChannelCount) {
-    *Enabled = TRUE;
+    *Enabled = (SataPrivateData->IPorts & (1<<Channel)) != 0;
     *MaxDevices = SataPrivateData->DeviceCount;
     return EFI_SUCCESS;
   }
