@@ -361,7 +361,7 @@ SataControllerSupported (
     return EFI_UNSUPPORTED;
   }
 
-  if (IS_PCI_IDE (&PciData) || IS_PCI_SATADPA (&PciData)) {
+  if (IS_PCI_IDE (&PciData) || IS_PCI_SATADPA (&PciData) || IS_PCI_RAID(&PciData)) {
     return EFI_SUCCESS;
   }
 
