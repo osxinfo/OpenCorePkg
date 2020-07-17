@@ -1127,9 +1127,6 @@ IdeInitCalculateMode (
   } else {
     (*SupportedModes)->UdmaMode.Valid = FALSE;
   }
-
-  (*SupportedModes)->MultiWordDmaMode.Valid = FALSE;
-
   DEBUG ((DEBUG_INFO, "IdeInitCalculateMode: UdmaMode = %x\n", (*SupportedModes)->UdmaMode.Mode));
 
   //
